@@ -1,0 +1,64 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: always
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:11434/api/tags" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  schema-server:
+    build:
+      context: .
+      dockerfile: schema-server/Dockerfile
+    container_name: schema-server
+    restart: always
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./data:/data
+    command: python app.py --schema-dir /data/schemas --listen 0.0.0.0:5001
+
+  values-server:
+    build:
+      context: .
+      dockerfile: values-server/Dockerfile
+    container_name: values-server
+    restart: always
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./data:/data
+    command: python app.py --values-dir /data/values --listen 0.0.0.0:5002
+
+  bot-server:
+    build:
+      context: .
+      dockerfile: bot-server/Dockerfile
+    container_name: bot-server
+    restart: always
+    ports:
+      - "5003:5003"
+    depends_on:
+      ollama:
+        condition: service_healthy
+      schema-server:
+        condition: service_started
+      values-server:
+        condition: service_started
+    command: python app.py --listen 0.0.0.0:5003
+    environment:
+      - SCHEMA_SERVICE_URL=http://schema-server:5001
+      - VALUES_SERVICE_URL=http://values-server:5002
+      - OLLAMA_URL=http://ollama:11434/api/generate
+      - MODEL_NAME=llama3
+
+volumes:
+  ollama_data:
